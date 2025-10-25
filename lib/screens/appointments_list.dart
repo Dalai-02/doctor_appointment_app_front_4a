@@ -1,59 +1,94 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../services/appointement_service.dart';
+import '../routes.dart';
+import 'appointments_calendar.dart';
 
-class AppointmentDetailPage extends StatelessWidget {
-  final String appointmentId;
-
-  const AppointmentDetailPage({super.key, required this.appointmentId});
+class AppointmentsListPage extends StatelessWidget {
+  const AppointmentsListPage({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final citasRef =
-        FirebaseFirestore.instance.collection('citas').doc(appointmentId);
+    final user = FirebaseAuth.instance.currentUser;
+    final service = AppointmentService();
+
+    if (user == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Mis citas')),
+        body: const Center(child: Text('Necesitas iniciar sesión')),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Detalle de Cita"),
-        backgroundColor: Colors.teal,
+        title: const Text('Mis citas'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.calendar_month),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const AppointmentsCalendarPage()),
+            ),
+          ),
+        ],
       ),
-      body: FutureBuilder<DocumentSnapshot>(
-        future: citasRef.get(),
+      body: FutureBuilder<List<Appointment>>(
+        future: service.getAppointmentsForUser(user.uid),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (!snapshot.hasData || !snapshot.data!.exists) {
-            return const Center(child: Text("No se encontró la cita."));
+          if (snapshot.hasError) {
+            return Center(child: Text('Error: ${snapshot.error}'));
+          }
+          final list = snapshot.data ?? [];
+          if (list.isEmpty) {
+            return const Center(child: Text('No tienes citas programadas'));
           }
 
-          final data = snapshot.data!.data() as Map<String, dynamic>;
-
-          return Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Card(
-              color: Colors.teal.shade50,
-              elevation: 3,
-              child: ListTile(
-                title: Text("Motivo: ${data['motivo'] ?? 'Sin motivo'}"),
-                subtitle: Text(
-                  "Fecha: ${data['fecha'] ?? ''}\n"
-                  "Inicio: ${data['hora_inicio'] ?? ''}\n"
-                  "Fin: ${data['hora_fin'] ?? ''}",
+          return ListView.builder(
+            itemCount: list.length,
+            itemBuilder: (context, index) {
+              final a = list[index];
+              final fmt = DateFormat('yyyy-MM-dd HH:mm');
+              return Card(
+                margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+                child: ListTile(
+                  title: Text(a.motivo),
+                  subtitle: FutureBuilder<DocumentSnapshot>(
+                    future: FirebaseFirestore.instance.collection('doctores').doc(a.idMedico).get(),
+                    builder: (context, docSnap) {
+                      final base = 'Inicio: ${fmt.format(a.start)}\nFin: ${fmt.format(a.end)}';
+                      if (!docSnap.hasData || docSnap.data == null) {
+                        return Text(base);
+                      }
+                      final ddata = docSnap.data!.data() as Map<String, dynamic>?;
+                      if (ddata == null) return Text(base);
+                      final doctorName = ddata['nombre'] ?? ddata['Nombre'] ?? ddata['name'] ?? 'Dr./Dra. Sin nombre';
+                      final especial = ddata['especialidad'] ?? ddata['Especialidad'] ?? ddata['especialidad_medica'] ?? '';
+                      return Text('$base\nDoctor: $doctorName${especial.isNotEmpty ? ' - $especial' : ''}');
+                    },
+                  ),
+                  isThreeLine: true,
+                  trailing: IconButton(
+                    icon: const Icon(Icons.chevron_right),
+                    onPressed: () => Navigator.pushNamed(
+                      context,
+                      Routes.appointmentDetail,
+                      arguments: a.id,
+                    ),
+                  ),
                 ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.redAccent),
-                  onPressed: () async {
-                    await citasRef.delete();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text("Cita eliminada.")),
-                    );
-                    Navigator.pop(context);
-                  },
-                ),
-              ),
-            ),
+              );
+            },
           );
         },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => Navigator.pushNamed(context, Routes.appointmentForm),
+        child: const Icon(Icons.add),
       ),
     );
   }

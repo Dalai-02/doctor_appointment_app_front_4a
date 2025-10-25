@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:practica/services/appointement_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
 class AppointmentFormPage extends StatefulWidget {
@@ -14,9 +15,11 @@ class AppointmentFormPage extends StatefulWidget {
 class _AppointmentFormPageState extends State<AppointmentFormPage> {
   final _formKey = GlobalKey<FormState>();
   final _motivoCtrl = TextEditingController();
+  final _patientCtrl = TextEditingController();
+  final _instructionsCtrl = TextEditingController();
   DateTime? _start;
   DateTime? _end;
-  String _selectedDoctor = 'doc_001'; // para demo, puedes cambiar por lista
+  String _selectedDoctor = ''; // will be populated from 'doctores' collection
   final _service = AppointmentService();
 
   @override
@@ -27,6 +30,8 @@ class _AppointmentFormPageState extends State<AppointmentFormPage> {
       _start = widget.editing!.start;
       _end = widget.editing!.end;
       _selectedDoctor = widget.editing!.idMedico;
+      _patientCtrl.text = widget.editing!.idPaciente;
+      _instructionsCtrl.text = widget.editing!.instructions;
     }
   }
 
@@ -67,12 +72,14 @@ class _AppointmentFormPageState extends State<AppointmentFormPage> {
     final appt = Appointment(
       id: widget.editing?.id ?? '',
       idMedico: _selectedDoctor,
-      idPaciente: user.uid,
+      idPaciente: _patientCtrl.text.isNotEmpty ? _patientCtrl.text : user.uid,
       motivo: _motivoCtrl.text.trim(),
       start: _start!,
       end: _end!,
       createdBy: user.uid,
       status: 'confirmada',
+      clinicAddress: '',
+      instructions: _instructionsCtrl.text.trim(),
     );
 
     try {
@@ -93,6 +100,8 @@ class _AppointmentFormPageState extends State<AppointmentFormPage> {
   @override
   void dispose() {
     _motivoCtrl.dispose();
+    _patientCtrl.dispose();
+    _instructionsCtrl.dispose();
     super.dispose();
   }
 
@@ -114,16 +123,58 @@ class _AppointmentFormPageState extends State<AppointmentFormPage> {
               ),
               const SizedBox(height: 12),
 
-              // Doctor - para demo es un dropdown estático
-              DropdownButtonFormField<String>(
-                value: _selectedDoctor,
-                items: const [
-                  DropdownMenuItem(value: 'doc_001', child: Text('Dra. Pérez')),
-                  DropdownMenuItem(value: 'doc_002', child: Text('Dr. Gómez')),
-                  DropdownMenuItem(value: 'doc_003', child: Text('Dra. Ruiz')),
-                ],
-                onChanged: (v) => setState(() => _selectedDoctor = v ?? 'doc_001'),
-                decoration: const InputDecoration(labelText: 'Especialista'),
+              // Doctor - load dynamically from Firestore
+              StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance.collection('doctores').snapshots(),
+                builder: (context, snap) {
+                  if (!snap.hasData) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8.0),
+                      child: LinearProgressIndicator(),
+                    );
+                  }
+                  final docs = snap.data!.docs;
+                  if (docs.isEmpty) {
+                    return const Text('No hay especialistas disponibles');
+                  }
+                  // ensure a selected value exists
+                  if (_selectedDoctor.isEmpty) {
+                    // prefer existing editing value (already set in initState), otherwise pick first
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (mounted) setState(() => _selectedDoctor = docs.first.id);
+                    });
+                  }
+
+                  return DropdownButtonFormField<String>(
+                    value: _selectedDoctor.isNotEmpty ? _selectedDoctor : docs.first.id,
+                    items: docs.map((d) {
+                      final data = d.data() as Map<String, dynamic>;
+                      final nombre = data['nombre'] ?? data['Nombre'] ?? data['name'] ?? 'Dr./Dra. Sin nombre';
+                      final especialidad = data['especialidad'] ?? data['Especialidad'] ?? '';
+                      return DropdownMenuItem(value: d.id, child: Text('$nombre ${especialidad.isNotEmpty ? '- $especialidad' : ''}'));
+                    }).toList(),
+                    onChanged: (v) => setState(() => _selectedDoctor = v ?? ''),
+                    decoration: const InputDecoration(labelText: 'Especialista'),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+
+              // Opcional: paciente UID (permite asignar a un paciente diferente)
+              TextFormField(
+                controller: _patientCtrl,
+                decoration: const InputDecoration(labelText: 'Paciente (UID) - opcional'),
+              ),
+              const SizedBox(height: 12),
+
+              // (Dirección clínica eliminada por solicitud)
+              const SizedBox(height: 12),
+
+              // Opcional: instrucciones previas
+              TextFormField(
+                controller: _instructionsCtrl,
+                decoration: const InputDecoration(labelText: 'Instrucciones (opcional)'),
+                maxLines: 2,
               ),
               const SizedBox(height: 12),
 

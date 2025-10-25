@@ -7,10 +7,35 @@ class PrivacyPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text("Privacidad")),
-      body: const Padding(
-        padding: EdgeInsets.all(16.0),
-        child: Text(
-          "Tus datos están protegidos y se usan solo para gestionar tus citas médicas y recomendaciones de salud.",
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Card(
+            elevation: 4,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Padding(
+              padding: EdgeInsets.all(20),
+              child: SingleChildScrollView(
+                child: Text(
+                  """Si creas una cuenta de clientes en este sitio web, compilamos la información personal para mejorar nuestra experiencia de finalización de compra y nuestro servicio al cliente.
+
+Esta información puede incluir los siguientes datos personales:
+
+- Direcciones insertadas
+- Detalles sobre tus consultas (por ejemplo, tus citas médicas)
+- Dirección de correo electrónico
+- Nombre
+- Número de teléfono
+
+Compartimos esta información con Firestore Database, nuestro proveedor de alojamiento web, para que puedan brindarnos sus servicios. Tus datos están protegidos y se usan solo para gestionar tus citas médicas y recomendaciones de salud.""",
+                  textAlign: TextAlign.justify,
+                  style: TextStyle(fontSize: 16, height: 1.5),
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );

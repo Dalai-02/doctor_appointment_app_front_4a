@@ -9,6 +9,9 @@ class Appointment {
   DateTime end;
   String createdBy;
   String status;
+  // Optional extra fields
+  String clinicAddress;
+  String instructions;
 
   Appointment({
     required this.id,
@@ -19,6 +22,8 @@ class Appointment {
     required this.end,
     required this.createdBy,
     this.status = 'confirmada',
+    this.clinicAddress = '',
+    this.instructions = '',
   });
 
   Map<String, dynamic> toMap() => {
@@ -29,6 +34,8 @@ class Appointment {
         'end': Timestamp.fromDate(end),
         'created_by': createdBy,
         'status': status,
+        'clinic_address': clinicAddress,
+        'instructions': instructions,
       };
 
   static Appointment fromDoc(DocumentSnapshot doc) {
@@ -42,6 +49,8 @@ class Appointment {
       end: (data['end'] as Timestamp).toDate(),
       createdBy: data['created_by'] ?? '',
       status: data['status'] ?? 'confirmada',
+      clinicAddress: data['clinic_address'] ?? data['direccion'] ?? '',
+      instructions: data['instructions'] ?? data['instrucciones'] ?? '',
     );
   }
 }
@@ -60,15 +69,18 @@ class AppointmentService {
   }
 
   Future<bool> _hasOverlap(Appointment appt, {String? excludeId}) async {
-    // Query all citas for same doctor with start < appt.end and end > appt.start
-    final q = await _col
-        .where('id_medico', isEqualTo: appt.idMedico)
-        .where('start', isLessThan: Timestamp.fromDate(appt.end))
-        .get();
+    // Many compound queries require composite indexes in Firestore.
+    // To avoid forcing the developer to create indexes during development,
+    // we query by doctor and then filter client-side. This is acceptable for
+    // small collections; for production consider creating a composite index
+    // for (id_medico ASC, start ASC) and using the server-side query.
+    final q = await _col.where('id_medico', isEqualTo: appt.idMedico).get();
 
     for (final d in q.docs) {
       if (excludeId != null && d.id == excludeId) continue;
       final data = d.data() as Map<String, dynamic>;
+      // Guard against missing fields
+      if (data['start'] == null || data['end'] == null) continue;
       final existingStart = (data['start'] as Timestamp).toDate();
       final existingEnd = (data['end'] as Timestamp).toDate();
       if (appt.start.isBefore(existingEnd) && appt.end.isAfter(existingStart)) {
@@ -79,13 +91,20 @@ class AppointmentService {
   }
 
   Future<List<Appointment>> getAppointmentsForUser(String uid) async {
-    final q = await _col.where('id_paciente', isEqualTo: uid).orderBy('start').get();
-    return q.docs.map((d) => Appointment.fromDoc(d)).toList();
+    // Avoid compound query that may require a composite index by
+    // querying by id_paciente and sorting client-side.
+    final q = await _col.where('id_paciente', isEqualTo: uid).get();
+    final list = q.docs.map((d) => Appointment.fromDoc(d)).toList();
+    list.sort((a, b) => a.start.compareTo(b.start));
+    return list;
   }
 
   Future<List<Appointment>> getAppointmentsForDoctor(String idMedico) async {
-    final q = await _col.where('id_medico', isEqualTo: idMedico).orderBy('start').get();
-    return q.docs.map((d) => Appointment.fromDoc(d)).toList();
+    // Avoid requiring composite index: query by doctor and sort client-side.
+    final q = await _col.where('id_medico', isEqualTo: idMedico).get();
+    final list = q.docs.map((d) => Appointment.fromDoc(d)).toList();
+    list.sort((a, b) => a.start.compareTo(b.start));
+    return list;
   }
 
   Future<Appointment> getById(String id) async {
