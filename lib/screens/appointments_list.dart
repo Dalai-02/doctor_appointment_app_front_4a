@@ -5,14 +5,22 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/appointement_service.dart';
 import '../routes.dart';
 import 'appointments_calendar.dart';
+import 'package:practica/screens/appointment_form.dart';
 
 class AppointmentsListPage extends StatelessWidget {
+  static double _dragDx = 0.0;
   const AppointmentsListPage({super.key});
 
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
     final service = AppointmentService();
+
+    Future<void> _onRefresh() async {
+      // Forzar recarga de la lista (puedes mejorar esto con un provider o setState si lo haces stateful)
+      (context as Element).markNeedsBuild();
+      await Future.delayed(const Duration(milliseconds: 300));
+    }
 
     if (user == null) {
       return Scaffold(
@@ -34,57 +42,75 @@ class AppointmentsListPage extends StatelessWidget {
           ),
         ],
       ),
-      body: FutureBuilder<List<Appointment>>(
-        future: service.getAppointmentsForUser(user.uid),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragStart: (details) {
+          if (details.globalPosition.dx < 40) _dragDx = 0.0;
+        },
+        onHorizontalDragUpdate: (details) {
+          if (details.globalPosition.dx < 40 && details.delta.dx > 0) _dragDx += details.delta.dx;
+        },
+        onHorizontalDragEnd: (details) {
+          if (_dragDx > 80.0) {
+            Navigator.pushReplacementNamed(context, Routes.home);
           }
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
-          final list = snapshot.data ?? [];
-          if (list.isEmpty) {
-            return const Center(child: Text('No tienes citas programadas'));
-          }
-
-          return ListView.builder(
-            itemCount: list.length,
-            itemBuilder: (context, index) {
-              final a = list[index];
-              final fmt = DateFormat('yyyy-MM-dd HH:mm');
-              return Card(
-                margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-                child: ListTile(
-                  title: Text(a.motivo),
-                  subtitle: FutureBuilder<DocumentSnapshot>(
-                    future: FirebaseFirestore.instance.collection('doctores').doc(a.idMedico).get(),
-                    builder: (context, docSnap) {
-                      final base = 'Inicio: ${fmt.format(a.start)}\nFin: ${fmt.format(a.end)}';
-                      if (!docSnap.hasData || docSnap.data == null) {
-                        return Text(base);
-                      }
-                      final ddata = docSnap.data!.data() as Map<String, dynamic>?;
-                      if (ddata == null) return Text(base);
-                      final doctorName = ddata['nombre'] ?? ddata['Nombre'] ?? ddata['name'] ?? 'Dr./Dra. Sin nombre';
-                      final especial = ddata['especialidad'] ?? ddata['Especialidad'] ?? ddata['especialidad_medica'] ?? '';
-                      return Text('$base\nDoctor: $doctorName${especial.isNotEmpty ? ' - $especial' : ''}');
-                    },
-                  ),
-                  isThreeLine: true,
-                  trailing: IconButton(
-                    icon: const Icon(Icons.chevron_right),
-                    onPressed: () => Navigator.pushNamed(
-                      context,
-                      Routes.appointmentDetail,
-                      arguments: a.id,
+          _dragDx = 0.0;
+        },
+        child: RefreshIndicator(
+          onRefresh: _onRefresh,
+          child: FutureBuilder<List<Appointment>>(
+            future: service.getAppointmentsForUser(user.uid),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Center(child: Text('Error: [38;5;9m${snapshot.error}[0m'));
+              }
+              final list = snapshot.data ?? [];
+              if (list.isEmpty) {
+                return const Center(child: Text('No tienes citas programadas'));
+              }
+              return ListView.builder(
+                itemCount: list.length,
+                itemBuilder: (context, index) {
+                  final a = list[index];
+                  final fmt = DateFormat('yyyy-MM-dd HH:mm');
+                  return Card(
+                    margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+                    child: ListTile(
+                      title: Text(a.motivo),
+                      subtitle: FutureBuilder<DocumentSnapshot>(
+                        future: FirebaseFirestore.instance.collection('doctores').doc(a.idMedico).get(),
+                        builder: (context, docSnap) {
+                          final base = 'Inicio: ${fmt.format(a.start)}\nFin: ${fmt.format(a.end)}';
+                          if (!docSnap.hasData || docSnap.data == null) {
+                            return Text(base);
+                          }
+                          final ddata = docSnap.data!.data() as Map<String, dynamic>?;
+                          if (ddata == null) return Text(base);
+                          final doctorName = ddata['nombre'] ?? ddata['Nombre'] ?? ddata['name'] ?? 'Dr./Dra. Sin nombre';
+                          final especial = ddata['especialidad'] ?? ddata['Especialidad'] ?? ddata['especialidad_medica'] ?? '';
+                          return Text('$base\nDoctor: $doctorName${especial.isNotEmpty ? ' - $especial' : ''}');
+                        },
+                      ),
+                      isThreeLine: true,
+                      onTap: () => Navigator.pushNamed(
+                        context,
+                        Routes.appointmentDetail,
+                        arguments: a.id,
+                      ),
+                      onLongPress: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => AppointmentFormPage(editing: a)),
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               );
             },
-          );
-        },
+          ),
+        ),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => Navigator.pushNamed(context, Routes.appointmentForm),

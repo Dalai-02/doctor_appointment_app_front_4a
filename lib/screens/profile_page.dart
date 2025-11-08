@@ -11,6 +11,7 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
+  double _dragDx = 0.0;
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -69,13 +70,29 @@ class _ProfilePageState extends State<ProfilePage> {
 
     return Scaffold(
       appBar: AppBar(title: const Text("Perfil")),
-      body: _loading 
-          ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: SingleChildScrollView(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragStart: (details) {
+          if (details.globalPosition.dx < 40) _dragDx = 0.0;
+        },
+        onHorizontalDragUpdate: (details) {
+          if (details.globalPosition.dx < 40 && details.delta.dx > 0) _dragDx += details.delta.dx;
+        },
+        onHorizontalDragEnd: (details) {
+          if (_dragDx > 80.0) {
+            Navigator.pushReplacementNamed(context, Routes.home);
+          }
+          _dragDx = 0.0;
+        },
+        child: RefreshIndicator(
+          onRefresh: () async {
+            await _loadUserData();
+            setState(() {});
+          },
+          child: _loading 
+              ? const Center(child: CircularProgressIndicator())
+              : ListView(
+                  padding: const EdgeInsets.all(16.0),
                   children: [
                     Text(
                       "Correo: ${user?.email ?? 'No disponible'}",
@@ -114,7 +131,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     // Botón para volver al menú principal
                     ElevatedButton(
                       onPressed: () {
-                        Navigator.pop(context);
+                        Navigator.pushReplacementNamed(context, Routes.home);
                       },
                       child: const Text("Volver al Menú Principal"),
                     ),
@@ -130,8 +147,8 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                   ],
                 ),
-              ),
-            ),
+        ),
+      ),
     );
   }
 }

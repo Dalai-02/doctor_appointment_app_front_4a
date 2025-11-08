@@ -18,13 +18,38 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("DoctorAppointmentApp")),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
+      appBar: AppBar(title: const Text("DoctorAppointmentApp"), automaticallyImplyLeading: false),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16.0),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+              const SizedBox(height: 8),
+              // user icon with a small chat bubble
+              Center(
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    const CircleAvatar(radius: 36, backgroundColor: Colors.teal, child: Icon(Icons.person, size: 36, color: Colors.white)),
+                    Positioned(
+                      right: 0,
+                      bottom: 0,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(color: Colors.white, shape: BoxShape.circle),
+                        child: const Icon(Icons.chat_bubble, size: 14, color: Colors.teal),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
               TextFormField(
                 controller: emailController,
                 decoration: const InputDecoration(
@@ -93,20 +118,13 @@ class _LoginPageState extends State<LoginPage> {
               ),
               const SizedBox(height: 16),
               
-              // Botón para CERRAR SESIÓN (Botón de ejemplo para funcionalidad de Firebase)
-              ElevatedButton(
-                onPressed: () async {
-                  await _auth.signOut();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text("Sesión cerrada")),
-                  );
-                },
-                child: const Text("Cerrar sesión"),
-              ),
+              // (Cerrar sesión eliminado del formulario de login - no es necesario aquí)
             ],
-          ),
-        ),
-      ),
+              ), // Column
+            ), // Form
+          ), // ConstrainedBox
+        ), // SingleChildScrollView
+      ), // Center
     );
   }
 }

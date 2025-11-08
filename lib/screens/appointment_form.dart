@@ -50,8 +50,9 @@ class _AppointmentFormPageState extends State<AppointmentFormPage> {
     if (time == null) return;
     final dt = DateTime(date.year, date.month, date.day, time.hour, time.minute);
     setState(() {
-      if (isStart) _start = dt;
-      else _end = dt;
+    
+      _start = dt;
+      _end = dt.add(const Duration(hours: 1));
     });
   }
 
@@ -59,12 +60,8 @@ class _AppointmentFormPageState extends State<AppointmentFormPage> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
-    if (_start == null || _end == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Selecciona fecha y hora de inicio y fin')));
-      return;
-    }
-    if (!_start!.isBefore(_end!)) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('La hora de inicio debe ser antes de la hora de fin')));
+    if (_start == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Selecciona fecha y hora de inicio')));
       return;
     }
 
@@ -75,7 +72,7 @@ class _AppointmentFormPageState extends State<AppointmentFormPage> {
       idPaciente: _patientCtrl.text.isNotEmpty ? _patientCtrl.text : user.uid,
       motivo: _motivoCtrl.text.trim(),
       start: _start!,
-      end: _end!,
+      end: _start!.add(const Duration(hours: 1)),
       createdBy: user.uid,
       status: 'confirmada',
       clinicAddress: '',
@@ -145,7 +142,8 @@ class _AppointmentFormPageState extends State<AppointmentFormPage> {
                     });
                   }
 
-                  return DropdownButtonFormField<String>(
+                  // Build dropdown and show availability info if present
+                  final dropdown = DropdownButtonFormField<String>(
                     value: _selectedDoctor.isNotEmpty ? _selectedDoctor : docs.first.id,
                     items: docs.map((d) {
                       final data = d.data() as Map<String, dynamic>;
@@ -155,6 +153,27 @@ class _AppointmentFormPageState extends State<AppointmentFormPage> {
                     }).toList(),
                     onChanged: (v) => setState(() => _selectedDoctor = v ?? ''),
                     decoration: const InputDecoration(labelText: 'Especialista'),
+                  );
+
+                  // find selected doctor data to display availability
+                  Map<String, dynamic>? selDoc;
+                  try {
+                    selDoc = docs.firstWhere((d) => d.id == _selectedDoctor, orElse: () => docs.first).data() as Map<String, dynamic>?;
+                  } catch (_) {
+                    selDoc = null;
+                  }
+
+                  final availFrom = selDoc == null ? null : (selDoc['available_from'] ?? selDoc['availableFrom'] ?? selDoc['hora_inicio'] ?? selDoc['inicio']);
+                  final availTo = selDoc == null ? null : (selDoc['available_to'] ?? selDoc['availableTo'] ?? selDoc['hora_fin'] ?? selDoc['fin']);
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      dropdown,
+                      const SizedBox(height: 6),
+                      if (availFrom != null || availTo != null)
+                        Text('Disponibilidad: ${availFrom ?? "-"} - ${availTo ?? "-"}', style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                    ],
                   );
                 },
               ),
@@ -178,23 +197,14 @@ class _AppointmentFormPageState extends State<AppointmentFormPage> {
               ),
               const SizedBox(height: 12),
 
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => _pickDateTime(isStart: true),
-                      child: Text('Inicio: ${_fmt(_start)}'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => _pickDateTime(isStart: false),
-                      child: Text('Fin: ${_fmt(_end)}'),
-                    ),
-                  ),
-                ],
+              // Only pick start; end is set to start + 1 hour automatically
+              OutlinedButton(
+                onPressed: () => _pickDateTime(isStart: true),
+                child: Text('Inicio: ${_fmt(_start)}'),
               ),
+              const SizedBox(height: 8),
+              if (_start != null)
+                Text('Fin (automático): ${_fmt(_end)}', style: const TextStyle(fontSize: 13, color: Colors.black54)),
               const SizedBox(height: 20),
 
               ElevatedButton(onPressed: _submit, child: const Text('Guardar')),
