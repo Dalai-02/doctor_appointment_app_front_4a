@@ -144,7 +144,7 @@ class _AppointmentFormPageState extends State<AppointmentFormPage> {
 
                   // Build dropdown and show availability info if present
                   final dropdown = DropdownButtonFormField<String>(
-                    value: _selectedDoctor.isNotEmpty ? _selectedDoctor : docs.first.id,
+                    initialValue: _selectedDoctor.isNotEmpty ? _selectedDoctor : docs.first.id,
                     items: docs.map((d) {
                       final data = d.data() as Map<String, dynamic>;
                       final nombre = data['nombre'] ?? data['Nombre'] ?? data['name'] ?? 'Dr./Dra. Sin nombre';

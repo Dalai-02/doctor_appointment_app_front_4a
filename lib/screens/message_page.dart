@@ -64,7 +64,7 @@ class _MessagesPageState extends State<MessagesPage> {
                 itemCount: contactos.length,
                 itemBuilder: (context, index) {
                   final data = contactos[index].data() as Map<String, dynamic>;
-                  String _find(Map<String, dynamic> m, List<String> keys) {
+                  String find(Map<String, dynamic> m, List<String> keys) {
                     String normalize(String s) {
                       var r = s.toLowerCase();
                       r = r.replaceAll('á', 'a').replaceAll('é', 'e').replaceAll('í', 'i').replaceAll('ó', 'o').replaceAll('ú', 'u').replaceAll('ñ', 'n');
@@ -84,10 +84,10 @@ class _MessagesPageState extends State<MessagesPage> {
                     return '';
                   }
 
-                  final nombre = _find(data, ['nombre', 'Nombre', 'name', 'displayName']);
-                  final especialidad = _find(data, ['especialidad', 'Especialidad', 'especialidad_medica']);
-                  final telefono = _find(data, ['telefono', 'tel', 'teléfono', 'Teléfono ', 'Telefono', 'Teléfono']);
-                  final correo = _find(data, ['correo', 'email', 'Email']);
+                  final nombre = find(data, ['nombre', 'Nombre', 'name', 'displayName']);
+                  final especialidad = find(data, ['especialidad', 'Especialidad', 'especialidad_medica']);
+                  final telefono = find(data, ['telefono', 'tel', 'teléfono', 'Teléfono ', 'Telefono', 'Teléfono']);
+                  final correo = find(data, ['correo', 'email', 'Email']);
 
                   return Card(
                     margin: const EdgeInsets.symmetric(vertical: 8),

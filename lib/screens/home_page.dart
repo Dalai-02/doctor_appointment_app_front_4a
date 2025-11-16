@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import '../services/consejos_service.dart';
 import '../routes.dart';
+import '../blocs/dashboard_bloc.dart';
+import 'dashboard_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -70,19 +73,16 @@ class _HomePageState extends State<HomePage> {
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
               onHorizontalDragStart: (details) {
-                // Detecta si el gesto comienza desde el borde izquierdo
                 _dragStartX = details.globalPosition.dx;
                 _dragDx = 0.0;
                 _draggingFromLeft = _dragStartX < 40.0;
               },
               onHorizontalDragUpdate: (details) {
-                // Solo cuenta si el arrastre es hacia la derecha
                 if (_draggingFromLeft && details.delta.dx > 0) {
                   _dragDx += details.delta.dx;
                 }
               },
               onHorizontalDragEnd: (details) async {
-                // Si arrastró lo suficiente, lanza el diálogo
                 if (_draggingFromLeft && _dragDx > 120.0) {
                   await _confirmLogout(context);
                 }
@@ -118,7 +118,7 @@ class _HomePageState extends State<HomePage> {
                     const Divider(),
                     const SizedBox(height: 10),
 
-                    // Sección doctores reconocidos
+                    // Doctores reconocidos
                     const Text(
                       "Doctores reconocidos",
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -129,7 +129,7 @@ class _HomePageState extends State<HomePage> {
                     const SizedBox(height: 30),
                     const Divider(),
 
-                    // Sección consejos saludables
+                    // Consejos saludables
                     const Text(
                       "Consejos saludables",
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -140,20 +140,105 @@ class _HomePageState extends State<HomePage> {
                     const SizedBox(height: 30),
                     const Divider(),
 
-                    // Sección contactos recientes
+                    // Contactos recientes
                     const Text(
                       "Contactos recientes",
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 10),
                     _buildContactos(rectDecoration),
+
+                    const SizedBox(height: 20),
+
+                    // Dashboard preview: solo si usuario es médico -> detect role in usuarios document
+                    const SizedBox(height: 12),
+                    StreamBuilder<DocumentSnapshot>(
+                      stream: user == null ? null : FirebaseFirestore.instance.collection('usuarios').doc(user.uid).snapshots(),
+                      builder: (context, snap) {
+                        final role = (snap.hasData && snap.data!.exists)
+                            ? ((snap.data!.data() as Map<String, dynamic>?)?['role'] ?? '').toString().toLowerCase()
+                            : '';
+                        final isDoctor = role == 'medico' || role == 'médico' || role == 'doctor';
+                        if (!isDoctor) return const SizedBox.shrink();
+
+                        return Column(
+                          children: [
+                            const SizedBox(height: 12),
+                            // Small preview card with three mini indicators backed by Bloc
+                            BlocProvider(
+                              create: (_) => DashboardBloc()..add(DashboardStart(user!.uid)),
+                              child: Card(
+                                elevation: 2,
+                                child: Padding(
+                                  padding: const EdgeInsets.all(12.0),
+                                  child: BlocBuilder<DashboardBloc, dynamic>(
+                                    builder: (context, state) {
+                                      if (state is DashboardLoading) {
+                                        return const SizedBox(height: 80, child: Center(child: CircularProgressIndicator()));
+                                      }
+                                      if (state is DashboardLoaded) {
+                                        return Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                          children: [
+                                            _miniIndicator(Icons.event, 'Total', state.totalAppointments.toString()),
+                                            _miniIndicator(Icons.schedule, 'Próx.', state.upcomingAppointments.toString()),
+                                            _miniIndicator(Icons.person, 'Pac.', state.totalPatients.toString()),
+                                          ],
+                                        );
+                                      }
+                                      if (state is DashboardError) {
+                                        return Center(child: Text('Error: ${state.message}'));
+                                      }
+                                      return const SizedBox.shrink();
+                                    },
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            // Button / card to open full Dashboard
+                            GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => BlocProvider(
+                                      create: (_) => DashboardBloc()..add(DashboardStart(user!.uid)),
+                                      child: const DashboardPage(),
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: Card(
+                                color: Colors.blue.shade50,
+                                child: SizedBox(
+                                  width: double.infinity,
+                                  height: 80,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12.0),
+                                    child: Row(
+                                      children: const [
+                                        Icon(Icons.dashboard, size: 36, color: Colors.blue),
+                                        SizedBox(width: 12),
+                                        Expanded(child: Text('Abrir Dashboard completo', style: TextStyle(fontSize: 16))),
+                                        Icon(Icons.arrow_forward_ios, size: 16)
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
                   ],
                 ),
               ),
             ),
           ),
 
-          // Zona invisible (borde izquierdo) para asegurar la detección del swipe
+          // Zona invisible (borde izquierdo) para swipe logout
           Positioned(
             left: 0,
             top: 0,
@@ -189,6 +274,17 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _miniIndicator(IconData icon, String label, String value) {
+    return Column(
+      children: [
+        Icon(icon, color: Colors.teal),
+        const SizedBox(height: 4),
+        Text(value, style: const TextStyle(fontWeight: FontWeight.bold)),
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+      ],
     );
   }
 

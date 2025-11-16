@@ -8,6 +8,7 @@ import 'package:practica/screens/message_page.dart';
 import 'package:practica/screens/config_page.dart';
 import 'package:practica/screens/about_page.dart';
 import 'package:practica/screens/privacy_page.dart';
+import 'package:practica/screens/dashboard_page.dart'; // nuevo
 
 // Pantallas del CRUD de citas
 import 'package:practica/screens/appointments_list.dart';
@@ -23,6 +24,7 @@ class Routes {
   static const String config = '/config';
   static const String about = '/about';
   static const String privacy = '/privacy';
+  static const String dashboard = '/dashboard';
 
   // --- Rutas del CRUD ---
   static const String appointments = '/appointments';
@@ -49,6 +51,8 @@ class Routes {
         return MaterialPageRoute(builder: (_) => const AppointmentsListPage());
       case appointmentForm:
         return MaterialPageRoute(builder: (_) => const AppointmentFormPage());
+        case dashboard:
+        return MaterialPageRoute(builder: (_) => const DashboardPage());
       case appointmentDetail:
         // Si no pasas argumentos, usa una página vacía segura
         final id = settings.arguments as String? ?? '';

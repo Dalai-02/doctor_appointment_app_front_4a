@@ -16,7 +16,7 @@ class AppointmentsListPage extends StatelessWidget {
     final user = FirebaseAuth.instance.currentUser;
     final service = AppointmentService();
 
-    Future<void> _onRefresh() async {
+    Future<void> onRefresh() async {
       // Forzar recarga de la lista (puedes mejorar esto con un provider o setState si lo haces stateful)
       (context as Element).markNeedsBuild();
       await Future.delayed(const Duration(milliseconds: 300));
@@ -57,7 +57,7 @@ class AppointmentsListPage extends StatelessWidget {
           _dragDx = 0.0;
         },
         child: RefreshIndicator(
-          onRefresh: _onRefresh,
+          onRefresh: onRefresh,
           child: FutureBuilder<List<Appointment>>(
             future: service.getAppointmentsForUser(user.uid),
             builder: (context, snapshot) {
