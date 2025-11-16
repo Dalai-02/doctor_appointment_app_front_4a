@@ -50,8 +50,6 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final user = _auth.currentUser;
-    const paddingHorizontal = 16.0;
-
     final rectDecoration = BoxDecoration(
       color: Colors.white.withOpacity(0.9),
       borderRadius: BorderRadius.circular(12),
@@ -104,54 +102,7 @@ class _HomePageState extends State<HomePage> {
                     const Text("¿En qué podemos ayudarte hoy?"),
                     const SizedBox(height: 20),
 
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      spacing: 20,
-                      runSpacing: 20,
-                      children: [
-                        _menuButton(context, Icons.calendar_today, "Mis Citas", Routes.appointments),
-                        _menuButton(context, Icons.event_available, "Agendar Cita", Routes.appointmentForm),
-                      ],
-                    ),
-
-                    const SizedBox(height: 30),
-                    const Divider(),
-                    const SizedBox(height: 10),
-
-                    // Doctores reconocidos
-                    const Text(
-                      "Doctores reconocidos",
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 10),
-                    _buildDoctoresReconocidos(rectDecoration),
-
-                    const SizedBox(height: 30),
-                    const Divider(),
-
-                    // Consejos saludables
-                    const Text(
-                      "Consejos saludables",
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 10),
-                    _buildConsejos(rectDecoration),
-
-                    const SizedBox(height: 30),
-                    const Divider(),
-
-                    // Contactos recientes
-                    const Text(
-                      "Contactos recientes",
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 10),
-                    _buildContactos(rectDecoration),
-
-                    const SizedBox(height: 20),
-
-                    // Dashboard preview: solo si usuario es médico -> detect role in usuarios document
-                    const SizedBox(height: 12),
+                    // Dashboard preview al inicio: si usuario es médico
                     StreamBuilder<DocumentSnapshot>(
                       stream: user == null ? null : FirebaseFirestore.instance.collection('usuarios').doc(user.uid).snapshots(),
                       builder: (context, snap) {
@@ -163,8 +114,7 @@ class _HomePageState extends State<HomePage> {
 
                         return Column(
                           children: [
-                            const SizedBox(height: 12),
-                            // Small preview card with three mini indicators backed by Bloc
+                            // Preview card (mini indicadores)
                             BlocProvider(
                               create: (_) => DashboardBloc()..add(DashboardStart(user!.uid)),
                               child: Card(
@@ -196,7 +146,7 @@ class _HomePageState extends State<HomePage> {
                               ),
                             ),
                             const SizedBox(height: 12),
-                            // Button / card to open full Dashboard
+                            // Tap para abrir Dashboard completo
                             GestureDetector(
                               onTap: () {
                                 Navigator.push(
@@ -213,32 +163,73 @@ class _HomePageState extends State<HomePage> {
                                 color: Colors.blue.shade50,
                                 child: SizedBox(
                                   width: double.infinity,
-                                  height: 80,
+                                  height: 72,
                                   child: Padding(
                                     padding: const EdgeInsets.all(12.0),
                                     child: Row(
                                       children: const [
-                                        Icon(Icons.dashboard, size: 36, color: Colors.blue),
+                                        Icon(Icons.dashboard, size: 32, color: Colors.blue),
                                         SizedBox(width: 12),
                                         Expanded(child: Text('Abrir Dashboard completo', style: TextStyle(fontSize: 16))),
-                                        Icon(Icons.arrow_forward_ios, size: 16)
+                                        Icon(Icons.arrow_forward_ios, size: 16),
                                       ],
                                     ),
                                   ),
                                 ),
                               ),
                             ),
+                            const SizedBox(height: 20),
                           ],
                         );
                       },
                     ),
+
+                    Wrap(
+                      alignment: WrapAlignment.center,
+                      spacing: 20,
+                      runSpacing: 20,
+                      children: [
+                        _menuButton(context, Icons.calendar_today, "Mis Citas", Routes.appointments),
+                        _menuButton(context, Icons.event_available, "Agendar Cita", Routes.appointmentForm),
+                      ],
+                    ),
+
+                    const SizedBox(height: 30),
+                    const Divider(),
+                    const SizedBox(height: 10),
+
+                    const Text(
+                      "Doctores reconocidos",
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 10),
+                    _buildDoctoresReconocidos(rectDecoration),
+
+                    const SizedBox(height: 30),
+                    const Divider(),
+
+                    const Text(
+                      "Consejos saludables",
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 10),
+                    _buildConsejos(rectDecoration),
+
+                    const SizedBox(height: 30),
+                    const Divider(),
+
+                    const Text(
+                      "Contactos recientes",
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 10),
+                    _buildContactos(rectDecoration),
                   ],
                 ),
               ),
             ),
           ),
 
-          // Zona invisible (borde izquierdo) para swipe logout
           Positioned(
             left: 0,
             top: 0,
@@ -310,8 +301,6 @@ class _HomePageState extends State<HomePage> {
       ],
     );
   }
-
-  // --- Widgets de contenido dinámico ---
 
   Widget _buildDoctoresReconocidos(BoxDecoration rectDecoration) {
     return StreamBuilder<QuerySnapshot>(
