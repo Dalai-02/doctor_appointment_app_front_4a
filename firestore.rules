@@ -1,0 +1,117 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Reglas para la colección de citas (citas)
+    // - Crear: solo usuarios autenticados cuya uid coincida con created_by en la petición
+    // - Leer: solo el paciente (id_paciente) o el médico (id_medico) pueden leer la cita
+    // - Update/Delete: solo el creador (created_by) puede modificar o borrar
+    match /citas/{docId} {
+      // Allow create when the authenticated user is the creator OR is the patient.
+      // This covers cases where the client sets either created_by or id_paciente to the
+      // current user's uid.
+      allow create: if request.auth != null
+                    && (
+                      request.auth.uid == request.resource.data.created_by
+                      || request.auth.uid == request.resource.data.id_paciente
+                    );
+
+  // Allow read for authenticated users so patients can check a doctor's availability
+  // (queries by id_medico performed during appointment creation need to read
+  // existing appointments). If you want to restrict reads further, consider
+  // enforcing additional checks or moving overlap checks to a trusted backend.
+  allow read: if request.auth != null;
+
+      // Allow updates to the appointment status by the creator, the patient or the doctor.
+      // Only allow changing a limited set of fields when doing an update for safety.
+      // We extend the allowed set to include controlled cancellation fields so a doctor
+      // can record a cancellation reason/timestamp/uid without opening broader write access.
+      allow update: if request.auth != null
+                    && (
+                      request.auth.uid == resource.data.created_by
+                      || request.auth.uid == resource.data.id_paciente
+                      || request.auth.uid == resource.data.id_medico
+                    )
+                    // Allowed key combinations for an update (keeps updates minimal)
+                    && (
+                      request.resource.data.keys().hasOnly(['status'])
+                      || request.resource.data.keys().hasOnly(['status','clinic_address'])
+                      || request.resource.data.keys().hasOnly(['status','instructions'])
+                      || request.resource.data.keys().hasOnly(['status','clinic_address','instructions'])
+                      || request.resource.data.keys().hasOnly(['status','cancelled_at','cancelled_by'])
+                      || request.resource.data.keys().hasOnly(['status','cancelled_at','cancelled_by','cancel_reason'])
+                      || request.resource.data.keys().hasOnly(['status','cancelled_by'])
+                      || request.resource.data.keys().hasOnly(['status','cancel_reason'])
+                    )
+                    // Extra validations when cancellation fields are present
+                    && (
+                      (request.resource.data.cancelled_by == null || request.resource.data.cancelled_by == request.auth.uid)
+                      && (request.resource.data.cancelled_at == null || request.resource.data.cancelled_at is timestamp)
+                      && (request.resource.data.cancel_reason == null || request.resource.data.cancel_reason is string)
+                    );
+
+      // Deletion remains restricted to the creator only
+      allow delete: if request.auth != null && request.auth.uid == resource.data.created_by;
+    }
+
+    // Reglas para usuarios: cada usuario solo puede leer/editar su propio documento
+    match /usuarios/{userId} {
+      allow create: if request.auth != null
+                    && request.auth.uid == userId
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.email == request.auth.token.email
+                    && request.resource.data.nombre is string
+                    && request.resource.data.role is string;
+
+      // Allow read for the owner of the profile, or for authenticated users
+      // who are doctors (so doctors can read patient profiles when needed).
+      allow read: if request.auth != null && (
+        request.auth.uid == userId
+        || get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.role.toString().toLowerCase() in ['medico','médico','doctor']
+      );
+
+  // Allow the authenticated user to update their profile fields.
+  // We require that uid and email in the incoming data match the stored values
+  // to prevent clients from changing those identifiers. We do NOT require the
+  // role field to be present in the update request (profile edits like nombre,
+  // telefono, enfermedades will succeed).
+  allow update: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == resource.data.email;
+
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Consejos y doctores: lectura pública, escritura solo autenticada (puedes restringir más)
+    match /consejos/{doc} {
+      allow read: if true;
+      allow create, update, delete: if request.auth != null;
+    }
+
+    match /doctores_reconocidos/{doc} {
+      allow read: if true;
+      allow create, update, delete: if request.auth != null;
+    }
+    
+    // Colección 'doctores' utilizada en el formulario de creación de citas
+    match /doctores/{doc} {
+      // Permitimos lectura pública para mostrar la lista de especialistas en el formulario
+      allow read: if true;
+      // Escritura restringida a usuarios autenticados (o backend)
+      allow create, update, delete: if request.auth != null;
+    }
+
+    // Contactos médicos: lectura pública para que los contactos añadidos manualmente se muestren
+    match /contactos/{doc} {
+      allow read: if true;
+      allow create, update, delete: if request.auth != null;
+    }
+
+    // Por defecto denegar todo lo demás
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

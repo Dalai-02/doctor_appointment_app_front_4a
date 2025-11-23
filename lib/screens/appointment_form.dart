@@ -124,12 +124,33 @@ class _AppointmentFormPageState extends State<AppointmentFormPage> {
               StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance.collection('doctores').snapshots(),
                 builder: (context, snap) {
-                  if (!snap.hasData) {
-                    return const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 8.0),
-                      child: LinearProgressIndicator(),
+                  if (snap.hasError) {
+                    final err = snap.error;
+                    String msg = 'Error al cargar especialistas.';
+                    if (err is FirebaseException && err.code == 'permission-denied') {
+                      msg = 'Permiso denegado al cargar especialistas. Revisa las reglas de Firestore para la colección "doctores".';
+                    } else if (err != null) {
+                      msg = 'Error al cargar especialistas: ${err.toString()}';
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Text(msg, style: const TextStyle(color: Colors.red)),
                     );
                   }
+
+                  if (!snap.hasData) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            LinearProgressIndicator(),
+                            SizedBox(height: 6),
+                            Text('Cargando especialistas...'),
+                          ],
+                        ),
+                      );
+                    }
                   final docs = snap.data!.docs;
                   if (docs.isEmpty) {
                     return const Text('No hay especialistas disponibles');

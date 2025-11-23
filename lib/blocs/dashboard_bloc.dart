@@ -46,12 +46,14 @@ class DashboardError extends DashboardState {
 
 class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
   StreamSubscription<QuerySnapshot>? _citasSub;
-  StreamSubscription<QuerySnapshot>? _usersSub;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   DashboardBloc() : super(DashboardLoading()) {
     on<DashboardStart>(_onStart);
     on<DashboardStop>(_onStop);
+    on<_CitasUpdated>(_onCitasUpdated);
+    on<_PatientsUpdated>(_onPatientsUpdated);
+    on<_DashboardStreamError>(_onStreamError);
   }
 
   Future<void> _onStart(DashboardStart event, Emitter<DashboardState> emit) async {
@@ -63,77 +65,101 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
           .where('id_medico', isEqualTo: event.userId)
           .snapshots()
           .listen((snap) {
-        final now = DateTime.now();
-        final all = snap.docs;
-        final total = all.length;
-        final upcoming = all.where((d) {
-          final data = d.data() as Map<String, dynamic>;
-          final start = data['start'];
-          if (start == null) return false;
-          final startDt = (start as Timestamp).toDate();
-          return startDt.isAfter(now);
-        }).length;
-        // For patients count we listen separately below and combine when available.
-        // Emit partial if users subscription not ready
-        add(_InternalUpdate(total, upcoming));
+        try {
+          final now = DateTime.now();
+          final all = snap.docs;
+          final total = all.length;
+          final upcoming = all.where((d) {
+            final data = d.data();
+            final start = data['start'];
+            if (start == null) return false;
+            final startDt = (start as Timestamp).toDate();
+            return startDt.isAfter(now);
+          }).length;
+          // Compute unique patients from citas (avoid reading full usuarios collection)
+          final patientsSet = <String>{};
+          for (final d in all) {
+            final data = d.data();
+            final pid = (data['id_paciente'] ?? '').toString();
+            if (pid.isNotEmpty) patientsSet.add(pid);
+          }
+          final patientsCount = patientsSet.length;
+          // For patients count we listen separately below and combine when available.
+          // Emit partial if users subscription not ready
+          add(_CitasUpdated(total, upcoming));
+          add(_PatientsUpdated(patientsCount));
+        } catch (e) {
+          // Dispatch an internal error event so it is handled by the bloc
+          add(_DashboardStreamError('Error procesando citas: ${e.toString()}'));
+        }
+      }, onError: (err) {
+        add(_DashboardStreamError('Error en stream de citas: ${err.toString()}'));
       });
 
-      // Listen patients (usuarios role == Paciente) total
-      _usersSub = _firestore.collection('usuarios').snapshots().listen((snap) {
-        final patients = snap.docs.where((d) {
-          final data = d.data() as Map<String, dynamic>;
-          final role = (data['role'] ?? '').toString().toLowerCase();
-          return role == 'paciente' || role == 'patient';
-        }).length;
-        add(_InternalPatientsUpdate(patients));
-      });
+      // Note: reading the full 'usuarios' collection may be blocked by Firestore rules
+      // (clients typically cannot list all users). Instead we compute the number of
+      // distinct pacientes based on the citas stream above (unique id_paciente).
     } catch (e) {
       emit(DashboardError(e.toString()));
     }
   }
 
-  // Internal events to combine streams without making public API complex
   void _onStop(DashboardStop event, Emitter<DashboardState> emit) {
     _citasSub?.cancel();
-    _usersSub?.cancel();
   }
 
-  // Small internal event handling via add(...) using private classes:
-  void add(dynamic event) {
-    if (event is _InternalUpdate) {
-      final current = state is DashboardLoaded ? state as DashboardLoaded : DashboardLoaded(totalAppointments: 0, upcomingAppointments: 0, totalPatients: 0);
-      emit(DashboardLoaded(
-        totalAppointments: event.total,
-        upcomingAppointments: event.upcoming,
-        totalPatients: current.totalPatients,
-      ));
-    } else if (event is _InternalPatientsUpdate) {
-      final current = state is DashboardLoaded ? state as DashboardLoaded : DashboardLoaded(totalAppointments: 0, upcomingAppointments: 0, totalPatients: 0);
-      emit(DashboardLoaded(
-        totalAppointments: current.totalAppointments,
-        upcomingAppointments: current.upcomingAppointments,
-        totalPatients: event.patients,
-      ));
-    } else {
-      super.add(event);
-    }
+  // Handlers for private internal events
+  void _onCitasUpdated(_CitasUpdated event, Emitter<DashboardState> emit) {
+    final current = state is DashboardLoaded ? state as DashboardLoaded : DashboardLoaded(totalAppointments: 0, upcomingAppointments: 0, totalPatients: 0);
+    emit(DashboardLoaded(
+      totalAppointments: event.total,
+      upcomingAppointments: event.upcoming,
+      totalPatients: current.totalPatients,
+    ));
+  }
+
+  void _onPatientsUpdated(_PatientsUpdated event, Emitter<DashboardState> emit) {
+    final current = state is DashboardLoaded ? state as DashboardLoaded : DashboardLoaded(totalAppointments: 0, upcomingAppointments: 0, totalPatients: 0);
+    emit(DashboardLoaded(
+      totalAppointments: current.totalAppointments,
+      upcomingAppointments: current.upcomingAppointments,
+      totalPatients: event.patients,
+    ));
+  }
+
+  void _onStreamError(_DashboardStreamError event, Emitter<DashboardState> emit) {
+    emit(DashboardError(event.message));
   }
 
   @override
   Future<void> close() {
     _citasSub?.cancel();
-    _usersSub?.cancel();
     return super.close();
   }
 }
 
-// Private helper internal "events"
-class _InternalUpdate {
+// Private helper internal events (as DashboardEvent subclasses)
+class _CitasUpdated extends DashboardEvent {
   final int total;
   final int upcoming;
-  _InternalUpdate(this.total, this.upcoming);
+  _CitasUpdated(this.total, this.upcoming);
+
+  @override
+  List<Object?> get props => [total, upcoming];
 }
-class _InternalPatientsUpdate {
+
+class _PatientsUpdated extends DashboardEvent {
   final int patients;
-  _InternalPatientsUpdate(this.patients);
+  _PatientsUpdated(this.patients);
+
+  @override
+  List<Object?> get props => [patients];
+}
+
+class _DashboardStreamError extends DashboardEvent {
+  final String message;
+  _DashboardStreamError(this.message);
+
+  @override
+  List<Object?> get props => [message];
 }

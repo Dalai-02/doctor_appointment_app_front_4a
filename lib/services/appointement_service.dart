@@ -120,6 +120,46 @@ class AppointmentService {
     await _col.doc(appt.id).update(appt.toMap());
   }
 
+  /// Cancela una cita. Opcionalmente puede incluirse un motivo y el UID
+  /// del usuario que realiza la cancelación (por ejemplo el médico).
+  Future<void> cancelAppointment(String id, {String? reason, String? cancelledBy}) async {
+    final docRef = _col.doc(id);
+    final primaryUpdate = <String, dynamic>{
+      'status': 'cancelada',
+      'cancelled_at': Timestamp.fromDate(DateTime.now()),
+    };
+    if (reason != null && reason.isNotEmpty) primaryUpdate['cancel_reason'] = reason;
+    if (cancelledBy != null && cancelledBy.isNotEmpty) primaryUpdate['cancelled_by'] = cancelledBy;
+
+    try {
+      // Intento principal: escribir campos detallados (si las reglas lo permiten)
+      await docRef.update(primaryUpdate);
+      return;
+    } on FirebaseException catch (e) {
+      // Si las reglas no permiten estos campos, intentamos una actualización alternativa
+      // que sólo modifique campos permitidos por las reglas (status, instructions, clinic_address).
+      if (e.code == 'permission-denied') {
+        // Leer el documento actual para recuperar instrucciones y concatenar el motivo allí.
+        final snap = await docRef.get();
+        final data = snap.data() as Map<String, dynamic>?;
+        final prevInstructions = (data != null && data['instructions'] != null) ? data['instructions'].toString() : '';
+        final buffer = StringBuffer(prevInstructions);
+        if (reason != null && reason.isNotEmpty) {
+          if (buffer.isNotEmpty) buffer.writeln();
+          buffer.writeln('Motivo de cancelación (por ${cancelledBy ?? 'doctor'}):');
+          buffer.writeln(reason);
+        }
+        final fallback = <String, dynamic>{
+          'status': 'cancelada',
+          'instructions': buffer.toString(),
+        };
+        await docRef.update(fallback);
+        return;
+      }
+      rethrow;
+    }
+  }
+
   Future<void> deleteAppointment(String id) async {
     await _col.doc(id).delete();
   }

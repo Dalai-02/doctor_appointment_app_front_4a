@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../blocs/dashboard_bloc.dart';
+import '../routes.dart';
 
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key});
@@ -35,6 +36,11 @@ class DashboardPage extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    onPressed: () => Navigator.pushNamed(context, Routes.graphics),
+                    icon: const Icon(Icons.show_chart),
+                    label: const Text('Ver gráficas'),
+                  ),
                   // espacio para información extendida o gráficos (frontend mock)
                   Card(
                     child: Padding(

@@ -32,41 +32,79 @@ class _ProfilePageState extends State<ProfilePage> {
     final user = _auth.currentUser;
     if (user == null) return;
 
-    final doc = await _firestore.collection('usuarios').doc(user.uid).get();
-
-    if (doc.exists) {
-      final data = doc.data();
-      nombreController.text = data?['nombre'] ?? '';
-      telefonoController.text = data?['telefono'] ?? '';
-      enfermedadesController.text = data?['enfermedades'] ?? '';
+    try {
+      final doc = await _firestore.collection('usuarios').doc(user.uid).get();
+      if (doc.exists) {
+        final data = doc.data();
+        nombreController.text = data?['nombre'] ?? '';
+        telefonoController.text = data?['telefono'] ?? '';
+        enfermedadesController.text = data?['enfermedades'] ?? '';
+      }
+    } on FirebaseException catch (e) {
+      // Handle permission denied or other Firestore errors gracefully
+      final code = e.code;
+      print('Error loading user data: $code ${e.message}');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo cargar el perfil: $code')));
+    } catch (e) {
+      print('Unexpected error loading user data: $e');
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al cargar perfil')));
     }
   }
 
   // Guarda o actualiza los datos del usuario
   Future<void> _saveUserData() async {
     final user = _auth.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Debes iniciar sesión para guardar tu perfil')));
+      return;
+    }
 
     setState(() => _loading = true);
+    try {
+      await _firestore.collection('usuarios').doc(user.uid).set({
+        'nombre': nombreController.text.trim(),
+        'telefono': telefonoController.text.trim(),
+        'enfermedades': enfermedadesController.text.trim(),
+        'email': user.email,
+        'uid': user.uid,
+      });
 
-    await _firestore.collection('usuarios').doc(user.uid).set({
-      'nombre': nombreController.text.trim(),
-      'telefono': telefonoController.text.trim(),
-      'enfermedades': enfermedadesController.text.trim(),
-      'email': user.email,
-      'uid': user.uid,
-    });
-
-    setState(() => _loading = false);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Información guardada exitosamente')),
-    );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Información guardada exitosamente')),
+      );
+    } on FirebaseException catch (e) {
+      print('Error saving user data: ${e.code} ${e.message}');
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('No se pudo guardar el perfil: ${e.code}')));
+    } catch (e) {
+      print('Unexpected error saving user data: $e');
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al guardar perfil')));
+    } finally {
+      setState(() => _loading = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final user = _auth.currentUser;
+
+    if (user == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Perfil')),
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('No has iniciado sesión.'),
+              const SizedBox(height: 12),
+              ElevatedButton(
+                onPressed: () => Navigator.pushReplacementNamed(context, Routes.login),
+                child: const Text('Iniciar sesión'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(title: const Text("Perfil")),
@@ -95,7 +133,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   padding: const EdgeInsets.all(16.0),
                   children: [
                     Text(
-                      "Correo: ${user?.email ?? 'No disponible'}",
+                      "Correo: ${user.email ?? 'No disponible'}",
                       style: const TextStyle(fontSize: 16),
                     ),
                     const SizedBox(height: 20),

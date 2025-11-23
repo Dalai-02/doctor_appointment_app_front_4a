@@ -34,6 +34,10 @@ dependencies:
   firebase_auth: ^4.20.0
   cloud_firestore: ^4.10.6
   intl: ^0.20.2
+  # fl_chart caused an incompatibility with the local Flutter SDK (MediaQuery.boldTextOverride)
+  # Use Syncfusion charts which are robust across Flutter versions for this project.
+  # Use a version compatible with intl ^0.20.2 (upgrade to a newer major release).
+  syncfusion_flutter_charts: ^31.2.12
   
 
   # The following adds the Cupertino Icons font to your application.
