@@ -25,25 +25,16 @@ service cloud.firestore {
 
       // Allow updates to the appointment status by the creator, the patient or the doctor.
       // Only allow changing a limited set of fields when doing an update for safety.
-      // We extend the allowed set to include controlled cancellation fields so a doctor
-      // can record a cancellation reason/timestamp/uid without opening broader write access.
+      // We allow any subset of the approved keys below so clients that send only
+      // a subset (e.g., ['status'] or ['status','instructions']) will still match.
       allow update: if request.auth != null
                     && (
                       request.auth.uid == resource.data.created_by
                       || request.auth.uid == resource.data.id_paciente
                       || request.auth.uid == resource.data.id_medico
                     )
-                    // Allowed key combinations for an update (keeps updates minimal)
-                    && (
-                      request.resource.data.keys().hasOnly(['status'])
-                      || request.resource.data.keys().hasOnly(['status','clinic_address'])
-                      || request.resource.data.keys().hasOnly(['status','instructions'])
-                      || request.resource.data.keys().hasOnly(['status','clinic_address','instructions'])
-                      || request.resource.data.keys().hasOnly(['status','cancelled_at','cancelled_by'])
-                      || request.resource.data.keys().hasOnly(['status','cancelled_at','cancelled_by','cancel_reason'])
-                      || request.resource.data.keys().hasOnly(['status','cancelled_by'])
-                      || request.resource.data.keys().hasOnly(['status','cancel_reason'])
-                    )
+                    // Allowed keys for updates (any subset is accepted)
+                    && request.resource.data.keys().hasOnly(['status','clinic_address','instructions','cancelled_at','cancelled_by','cancel_reason'])
                     // Extra validations when cancellation fields are present
                     && (
                       (request.resource.data.cancelled_by == null || request.resource.data.cancelled_by == request.auth.uid)
@@ -51,8 +42,18 @@ service cloud.firestore {
                       && (request.resource.data.cancel_reason == null || request.resource.data.cancel_reason is string)
                     );
 
-      // Deletion remains restricted to the creator only
-      allow delete: if request.auth != null && request.auth.uid == resource.data.created_by;
+      // Deletion allowed to creator OR to the assigned doctor (or a user whose
+      // perfil en `usuarios` indica role == 'medico').
+      // Note: Firestore delete requests cannot include a body, so to preserve
+      // a cancellation message we recommend that the client first write a
+      // record in `citas_canceladas` (or update cancellation fields) before
+      // performing the delete. The rules below give doctors the ability to
+      // delete documents that are addressed to them.
+      allow delete: if request.auth != null && (
+        request.auth.uid == resource.data.created_by
+        || request.auth.uid == resource.data.id_medico
+        || get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.role.toString().toLowerCase() in ['medico','médico','doctor']
+      );
     }
 
     // Reglas para usuarios: cada usuario solo puede leer/editar su propio documento
@@ -107,6 +108,18 @@ service cloud.firestore {
     match /contactos/{doc} {
       allow read: if true;
       allow create, update, delete: if request.auth != null;
+    }
+
+    // Registro de cancelaciones realizado por médicos (o por la app)
+    // Permitir que usuarios autenticados creen entradas en `citas_canceladas`.
+    // Lectura restringida al autor de la cancelación o a médicos.
+    match /citas_canceladas/{doc} {
+      allow create: if request.auth != null;
+      allow read: if request.auth != null && (
+        resource.data.cancelled_by == request.auth.uid
+        || get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.role.toString().toLowerCase() in ['medico','médico','doctor']
+      );
+      allow update, delete: if false;
     }
 
     // Por defecto denegar todo lo demás

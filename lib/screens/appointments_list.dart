@@ -7,9 +7,16 @@ import '../routes.dart';
 import 'appointments_calendar.dart';
 import 'package:practica/screens/appointment_form.dart';
 
-class AppointmentsListPage extends StatelessWidget {
-  static double _dragDx = 0.0;
+class AppointmentsListPage extends StatefulWidget {
   const AppointmentsListPage({super.key});
+
+  @override
+  State<AppointmentsListPage> createState() => _AppointmentsListPageState();
+}
+
+class _AppointmentsListPageState extends State<AppointmentsListPage> {
+  static double _dragDx = 0.0;
+  final Set<String> _locallyCancelled = {}; // optimistic local state for cancellations
 
   @override
   Widget build(BuildContext context) {
@@ -83,6 +90,7 @@ class AppointmentsListPage extends StatelessWidget {
               // Detect various ways role may be written: 'Médico', 'Medico', 'doctor', etc.
               final isDoctor = role.contains('med') || role.contains('méd') || role.contains('doctor');
               final citasStream = FirebaseFirestore.instance.collection('citas').where(isDoctor ? 'id_medico' : 'id_paciente', isEqualTo: user.uid).snapshots();
+              final cancelStream = FirebaseFirestore.instance.collection('citas_canceladas').where(isDoctor ? 'appointment_snapshot.id_medico' : 'appointment_snapshot.id_paciente', isEqualTo: user.uid).snapshots();
 
               return StreamBuilder<QuerySnapshot>(
                 stream: citasStream,
@@ -114,64 +122,100 @@ class AppointmentsListPage extends StatelessWidget {
                     );
                   }
 
-                  final docs = snap.data!.docs;
-                  final list = docs.map((d) => Appointment.fromDoc(d)).toList();
-                  if (list.isEmpty) {
-                    // DEBUG: mostrar documentos crudos para diagnosticar por qué no aparecen
-                    final rawDocs = docs.map((d) => d.data()).toList();
-                    return ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.all(12),
-                      children: [
-                        const SizedBox(height: 8),
-                        const Center(child: Text('No tienes citas programadas')), 
-                        const SizedBox(height: 12),
-                        const Text('DEBUG: documentos crudos en snapshot (mostrar para diagnóstico):', style: TextStyle(fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 8),
-                        ...rawDocs.map((d) => Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 6.0),
-                              child: Container(
-                                decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(6)),
-                                padding: const EdgeInsets.all(8),
-                                child: Text(d.toString()),
-                              ),
-                            )),
-                      ],
-                    );
-                  }
+                  // Nested stream: also listen for cancellation logs for this user
+                  return StreamBuilder<QuerySnapshot>(
+                    stream: cancelStream,
+                    builder: (context, cancelSnap) {
+                      // If reading cancel logs fails due to permissions, we should
+                      // not block the appointments list — treat as "no logs" and
+                      // continue. For other errors show a non-blocking message.
+                      List<QueryDocumentSnapshot> cancelDocsList = [];
+                      if (cancelSnap.hasError) {
+                        final err = cancelSnap.error;
+                        if (err is FirebaseException && err.code == 'permission-denied') {
+                          // permission denied: proceed without logs
+                        } else {
+                          // other error reading logs: proceed without logs but could be surfaced later
+                        }
+                      } else if (!cancelSnap.hasData) {
+                        // still loading logs: treat as empty until available
+                        cancelDocsList = [];
+                      } else {
+                        cancelDocsList = cancelSnap.data!.docs;
+                      }
 
-                  return ListView.builder(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    itemCount: list.length,
-                    itemBuilder: (context, index) {
-                      final a = list[index];
-                      final fmt = DateFormat('yyyy-MM-dd HH:mm');
-                      return Card(
-                        margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-                        child: ListTile(
-                          title: Text(a.motivo),
-                          subtitle: FutureBuilder<DocumentSnapshot>(
-                            future: FirebaseFirestore.instance.collection('doctores').doc(a.idMedico).get(),
-                            builder: (context, docSnap) {
-                              final base = 'Inicio: ${fmt.format(a.start)}\nFin: ${fmt.format(a.end)}';
-                              if (!docSnap.hasData || docSnap.data == null) {
-                                return Text(base);
-                              }
-                              final ddata = docSnap.data!.data() as Map<String, dynamic>?;
-                              if (ddata == null) return Text(base);
-                              final doctorName = ddata['nombre'] ?? ddata['Nombre'] ?? ddata['name'] ?? 'Dr./Dra. Sin nombre';
-                              final especial = ddata['especialidad'] ?? ddata['Especialidad'] ?? ddata['especialidad_medica'] ?? '';
-                              return Text('$base\nDoctor: $doctorName${especial.isNotEmpty ? ' - $especial' : ''}');
-                            },
-                          ),
-                          isThreeLine: true,
-                          onTap: () => Navigator.pushNamed(
-                            context,
-                            Routes.appointmentDetail,
-                            arguments: a.id,
-                          ),
-                          trailing: a.status.toLowerCase() == 'cancelada'
-                              ? const Icon(Icons.cancel, color: Colors.red)
+                      final docs = snap.data!.docs;
+                      final cancelDocs = cancelDocsList;
+                      final cancelledIds = <String>{};
+                      for (final cd in cancelDocs) {
+                        final cdata = cd.data() as Map<String, dynamic>;
+                        final apptId = cdata['appointment_id']?.toString();
+                        if (apptId != null && apptId.isNotEmpty) cancelledIds.add(apptId);
+                      }
+
+                      // Keep all appointments visible, but treat those with a cancellation
+                      // log as cancelled so both patient and doctor see the state.
+                      final list = docs.map((d) => Appointment.fromDoc(d)).toList();
+
+                      if (list.isEmpty) {
+                        // DEBUG: mostrar documentos crudos para diagnosticar por qué no aparecen
+                        final rawDocs = docs.map((d) => d.data()).toList();
+                        return ListView(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(12),
+                          children: [
+                            const SizedBox(height: 8),
+                            const Center(child: Text('No tienes citas programadas')),
+                            const SizedBox(height: 12),
+                            const Text('DEBUG: documentos crudos en snapshot (mostrar para diagnóstico):', style: TextStyle(fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 8),
+                            ...rawDocs.map((d) => Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 6.0),
+                                  child: Container(
+                                    decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(6)),
+                                    padding: const EdgeInsets.all(8),
+                                    child: Text(d.toString()),
+                                  ),
+                                )),
+                          ],
+                        );
+                      }
+
+                      // Render list
+                      return ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        itemCount: list.length,
+                        itemBuilder: (context, index) {
+                          final a = list[index];
+                          final isLocallyCancelled = _locallyCancelled.contains(a.id);
+                          final isCancelled = isLocallyCancelled || cancelledIds.contains(a.id) || a.status.toLowerCase() == 'cancelada';
+                          final fmt = DateFormat('yyyy-MM-dd HH:mm');
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+                            child: ListTile(
+                              title: Text(a.motivo),
+                              subtitle: FutureBuilder<DocumentSnapshot>(
+                                future: FirebaseFirestore.instance.collection('doctores').doc(a.idMedico).get(),
+                                builder: (context, docSnap) {
+                                  final base = 'Inicio: ${fmt.format(a.start)}\nFin: ${fmt.format(a.end)}';
+                                  if (!docSnap.hasData || docSnap.data == null) {
+                                    return Text(base);
+                                  }
+                                  final ddata = docSnap.data!.data() as Map<String, dynamic>?;
+                                  if (ddata == null) return Text(base);
+                                  final doctorName = ddata['nombre'] ?? ddata['Nombre'] ?? ddata['name'] ?? 'Dr./Dra. Sin nombre';
+                                  final especial = ddata['especialidad'] ?? ddata['Especialidad'] ?? ddata['especialidad_medica'] ?? '';
+                                  return Text('$base\nDoctor: $doctorName${especial.isNotEmpty ? ' - $especial' : ''}');
+                                },
+                              ),
+                              isThreeLine: true,
+                              onTap: () => Navigator.pushNamed(
+                                context,
+                                Routes.appointmentDetail,
+                                arguments: a.id,
+                              ),
+                                trailing: isCancelled
+                                  ? const Icon(Icons.cancel, color: Colors.red)
                                   : IconButton(
                                       icon: const Icon(Icons.cancel_outlined, color: Colors.redAccent),
                                       tooltip: 'Cancelar cita',
@@ -190,7 +234,7 @@ class AppointmentsListPage extends StatelessWidget {
                                                 }
 
                                                 return AlertDialog(
-                                                  title: const Text('Cancelar cita (opcional)') ,
+                                                  title: const Text('Cancelar cita (opcional)'),
                                                   content: Column(
                                                     mainAxisSize: MainAxisSize.min,
                                                     children: [
@@ -241,8 +285,13 @@ class AppointmentsListPage extends StatelessWidget {
                                           if (result != true) return;
                                           final reason = _reasonCtrl.text.trim();
                                           try {
-                                            await service.cancelAppointment(a.id, reason: reason.isEmpty ? null : reason, cancelledBy: user.uid);
-                                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cita cancelada.')));
+                                            final res = await service.cancelAppointment(a.id, reason: reason.isEmpty ? null : reason, cancelledBy: user.uid);
+                                            if (res == 'already_cancelled' || res == 'already_logged') {
+                                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('La cita ya estaba cancelada.')));
+                                            } else {
+                                              setState(() => _locallyCancelled.add(a.id));
+                                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cita cancelada.')));
+                                            }
                                           } catch (e) {
                                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al cancelar: ${e.toString()}')));
                                           }
@@ -261,19 +310,26 @@ class AppointmentsListPage extends StatelessWidget {
                                           );
                                           if (confirm != true) return;
                                           try {
-                                            await service.cancelAppointment(a.id, cancelledBy: user.uid);
-                                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cita cancelada.')));
+                                            final res = await service.cancelAppointment(a.id, cancelledBy: user.uid);
+                                            if (res == 'already_cancelled' || res == 'already_logged') {
+                                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('La cita ya estaba cancelada.')));
+                                            } else {
+                                              setState(() => _locallyCancelled.add(a.id));
+                                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cita cancelada.')));
+                                            }
                                           } catch (e) {
                                             ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al cancelar: ${e.toString()}')));
                                           }
                                         }
                                       },
                                     ),
-                          onLongPress: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => AppointmentFormPage(editing: a)),
-                          ),
-                        ),
+                              onLongPress: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => AppointmentFormPage(editing: a)),
+                              ),
+                            ),
+                          );
+                        },
                       );
                     },
                   );

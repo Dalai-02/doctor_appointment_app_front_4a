@@ -122,39 +122,73 @@ class AppointmentService {
 
   /// Cancela una cita. Opcionalmente puede incluirse un motivo y el UID
   /// del usuario que realiza la cancelación (por ejemplo el médico).
-  Future<void> cancelAppointment(String id, {String? reason, String? cancelledBy}) async {
+  /// Returns: 'updated' if appointment doc was updated,
+  /// 'logged' if a citas_canceladas log was created as fallback,
+  /// 'already_cancelled' if the appointment was already cancelled,
+  /// throws on unexpected errors.
+  Future<String> cancelAppointment(String id, {String? reason, String? cancelledBy}) async {
     final docRef = _col.doc(id);
-    final primaryUpdate = <String, dynamic>{
-      'status': 'cancelada',
-      'cancelled_at': Timestamp.fromDate(DateTime.now()),
-    };
-    if (reason != null && reason.isNotEmpty) primaryUpdate['cancel_reason'] = reason;
-    if (cancelledBy != null && cancelledBy.isNotEmpty) primaryUpdate['cancelled_by'] = cancelledBy;
+    // Strategy:
+    // 1) Try a minimal update (status only) — this is most likely to be allowed by rules.
+    // 2) If step 1 succeeds, try to write richer cancellation metadata (cancelled_at, cancelled_by, cancel_reason) separately — ignore permission errors.
+    // 3) If step 1 fails with permission-denied, fallback to concatenating the reason into `instructions` if possible.
 
+    // Use a transaction to make the update idempotent and avoid double-cancels.
     try {
-      // Intento principal: escribir campos detallados (si las reglas lo permiten)
-      await docRef.update(primaryUpdate);
-      return;
-    } on FirebaseException catch (e) {
-      // Si las reglas no permiten estos campos, intentamos una actualización alternativa
-      // que sólo modifique campos permitidos por las reglas (status, instructions, clinic_address).
-      if (e.code == 'permission-denied') {
-        // Leer el documento actual para recuperar instrucciones y concatenar el motivo allí.
-        final snap = await docRef.get();
-        final data = snap.data() as Map<String, dynamic>?;
-        final prevInstructions = (data != null && data['instructions'] != null) ? data['instructions'].toString() : '';
-        final buffer = StringBuffer(prevInstructions);
-        if (reason != null && reason.isNotEmpty) {
-          if (buffer.isNotEmpty) buffer.writeln();
-          buffer.writeln('Motivo de cancelación (por ${cancelledBy ?? 'doctor'}):');
-          buffer.writeln(reason);
+      String outcome = 'updated';
+      await FirebaseFirestore.instance.runTransaction((tx) async {
+        final snap = await tx.get(docRef);
+        if (!snap.exists) {
+          // If the document no longer exists, treat as already cancelled/missing.
+          outcome = 'already_cancelled';
+          return;
         }
-        final fallback = <String, dynamic>{
+        final data = snap.data() as Map<String, dynamic>? ?? {};
+        final currentStatus = (data['status'] ?? '').toString().toLowerCase();
+        if (currentStatus == 'cancelada') {
+          outcome = 'already_cancelled';
+          return;
+        }
+
+        final updateData = <String, dynamic>{
           'status': 'cancelada',
-          'instructions': buffer.toString(),
+          'cancelled_at': Timestamp.fromDate(DateTime.now()),
         };
-        await docRef.update(fallback);
-        return;
+        if (cancelledBy != null && cancelledBy.isNotEmpty) updateData['cancelled_by'] = cancelledBy;
+        if (reason != null && reason.isNotEmpty) updateData['cancel_reason'] = reason;
+
+        tx.update(docRef, updateData);
+      });
+      // If we reached here without exception, the transaction succeeded.
+      return outcome;
+    } on FirebaseException catch (e) {
+      // If the transaction was denied due to security rules, attempt fallback logging.
+      if (e.code == 'permission-denied') {
+        try {
+          // Check if a cancellation log already exists for this appointment to avoid duplicates.
+          final existing = await FirebaseFirestore.instance
+              .collection('citas_canceladas')
+              .where('appointment_id', isEqualTo: id)
+              .limit(1)
+              .get();
+          if (existing.docs.isNotEmpty) {
+            return 'already_logged';
+          }
+
+          final snap = await docRef.get();
+          final data = snap.data() as Map<String, dynamic>? ?? {};
+          final log = {
+            'appointment_id': id,
+            'cancelled_by': cancelledBy ?? '',
+            'cancel_reason': reason ?? '',
+            'cancelled_at': Timestamp.fromDate(DateTime.now()),
+            'appointment_snapshot': data,
+          };
+          await FirebaseFirestore.instance.collection('citas_canceladas').add(log);
+          return 'logged';
+        } on FirebaseException catch (_) {
+          rethrow;
+        }
       }
       rethrow;
     }
@@ -162,5 +196,54 @@ class AppointmentService {
 
   Future<void> deleteAppointment(String id) async {
     await _col.doc(id).delete();
+  }
+
+  /// Método específico para que un médico "borre" una cita dirigida a él.
+  /// Implementa un soft-delete por defecto: registra la cancelación (status + campos)
+  /// y crea un documento en `citas_canceladas` con el snapshot y el motivo.
+  /// Si `forceDelete==true` intentará además eliminar el documento físico (requiere reglas que lo permitan).
+  Future<void> doctorDeleteAppointment(String id,
+      {required String reason, required String doctorUid, bool forceDelete = false}) async {
+    final docRef = _col.doc(id);
+
+    final snap = await docRef.get();
+    if (!snap.exists) throw Exception('Cita no encontrada');
+    final data = snap.data() as Map<String, dynamic>? ?? {};
+
+    // Verificación básica en cliente: la cita debe dirigirse a este médico
+    final idMedico = data['id_medico'] ?? '';
+    if (idMedico != doctorUid) {
+      throw Exception('No autorizado: la cita no está dirigida a este médico.');
+    }
+
+    // 1) Intentar realizar una cancelación controlada (status + metadata)
+    final res = await cancelAppointment(id, reason: reason, cancelledBy: doctorUid);
+
+    // 2) Registrar en colección de logs de cancelaciones sólo si la
+    // transacción actualizó el documento (para evitar duplicados cuando
+    // cancelAppointment ya registró el log como fallback).
+    if (res == 'updated') {
+      final log = {
+        'appointment_id': id,
+        'cancelled_by': doctorUid,
+        'cancel_reason': reason,
+        'cancelled_at': Timestamp.fromDate(DateTime.now()),
+        'appointment_snapshot': data,
+      };
+      await FirebaseFirestore.instance.collection('citas_canceladas').add(log);
+    }
+
+    // 3) Opcional: intentar borrar físicamente (no recomendado sin reglas explícitas)
+    if (forceDelete) {
+      try {
+        await docRef.delete();
+      } on FirebaseException catch (e) {
+        // Si las reglas no permiten el delete, no fallamos: dejamos la cita como 'cancelada'.
+        if (e.code == 'permission-denied') {
+          return;
+        }
+        rethrow;
+      }
+    }
   }
 }
