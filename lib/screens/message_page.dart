@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../routes.dart';
+import 'chat_page.dart';
 
 class MessagesPage extends StatefulWidget {
   const MessagesPage({super.key});
@@ -99,19 +100,21 @@ class _MessagesPageState extends State<MessagesPage> {
                         "Especialidad: $especialidad\nTel: $telefono${correo.isNotEmpty ? '\nEmail: $correo' : ''}",
                       ),
                       trailing: IconButton(
-                        icon: const Icon(Icons.mail_outline, color: Colors.teal),
+                        icon: const Icon(Icons.chat_bubble_outline, color: Colors.teal),
+                        tooltip: 'Abrir chat (simulado)',
                         onPressed: () {
-                          if (correo.isNotEmpty) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Abrir cliente de correo para: $correo')),
-                            );
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('No hay correo disponible para este contacto')),
-                            );
-                          }
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => ChatPage(contactName: nombre, contactEmail: correo)),
+                          );
                         },
                       ),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (_) => ChatPage(contactName: nombre, contactEmail: correo)),
+                        );
+                      },
                     ),
                   );
                 },

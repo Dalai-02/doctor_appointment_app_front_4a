@@ -50,7 +50,6 @@ class _AppointmentFormPageState extends State<AppointmentFormPage> {
     if (time == null) return;
     final dt = DateTime(date.year, date.month, date.day, time.hour, time.minute);
     setState(() {
-    
       _start = dt;
       _end = dt.add(const Duration(hours: 1));
     });
@@ -106,39 +105,45 @@ class _AppointmentFormPageState extends State<AppointmentFormPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(widget.editing == null ? 'Crear Cita' : 'Editar Cita')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              // Motivo
-              TextFormField(
-                controller: _motivoCtrl,
-                decoration: const InputDecoration(labelText: 'Motivo de la consulta'),
-                validator: (v) => v == null || v.isEmpty ? 'Introduce un motivo' : null,
-              ),
-              const SizedBox(height: 12),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          setState(() {});
+          await Future.delayed(const Duration(milliseconds: 300));
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(16.0),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              children: [
+                // Motivo
+                TextFormField(
+                  controller: _motivoCtrl,
+                  decoration: const InputDecoration(labelText: 'Motivo de la consulta'),
+                  validator: (v) => v == null || v.isEmpty ? 'Introduce un motivo' : null,
+                ),
+                const SizedBox(height: 12),
 
-              // Doctor - load dynamically from Firestore
-              StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('doctores').snapshots(),
-                builder: (context, snap) {
-                  if (snap.hasError) {
-                    final err = snap.error;
-                    String msg = 'Error al cargar especialistas.';
-                    if (err is FirebaseException && err.code == 'permission-denied') {
-                      msg = 'Permiso denegado al cargar especialistas. Revisa las reglas de Firestore para la colección "doctores".';
-                    } else if (err != null) {
-                      msg = 'Error al cargar especialistas: ${err.toString()}';
+                // Doctor - load dynamically from Firestore
+                StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance.collection('doctores').snapshots(),
+                  builder: (context, snap) {
+                    if (snap.hasError) {
+                      final err = snap.error;
+                      String msg = 'Error al cargar especialistas.';
+                      if (err is FirebaseException && err.code == 'permission-denied') {
+                        msg = 'Permiso denegado al cargar especialistas. Revisa las reglas de Firestore para la colección "doctores".';
+                      } else if (err != null) {
+                        msg = 'Error al cargar especialistas: ${err.toString()}';
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8.0),
+                        child: Text(msg, style: const TextStyle(color: Colors.red)),
+                      );
                     }
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8.0),
-                      child: Text(msg, style: const TextStyle(color: Colors.red)),
-                    );
-                  }
 
-                  if (!snap.hasData) {
+                    if (!snap.hasData) {
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 8.0),
                         child: Column(
@@ -151,85 +156,86 @@ class _AppointmentFormPageState extends State<AppointmentFormPage> {
                         ),
                       );
                     }
-                  final docs = snap.data!.docs;
-                  if (docs.isEmpty) {
-                    return const Text('No hay especialistas disponibles');
-                  }
-                  // ensure a selected value exists
-                  if (_selectedDoctor.isEmpty) {
-                    // prefer existing editing value (already set in initState), otherwise pick first
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted) setState(() => _selectedDoctor = docs.first.id);
-                    });
-                  }
+                    final docs = snap.data!.docs;
+                    if (docs.isEmpty) {
+                      return const Text('No hay especialistas disponibles');
+                    }
+                    // ensure a selected value exists
+                    if (_selectedDoctor.isEmpty) {
+                      // prefer existing editing value (already set in initState), otherwise pick first
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) setState(() => _selectedDoctor = docs.first.id);
+                      });
+                    }
 
-                  // Build dropdown and show availability info if present
-                  final dropdown = DropdownButtonFormField<String>(
-                    initialValue: _selectedDoctor.isNotEmpty ? _selectedDoctor : docs.first.id,
-                    items: docs.map((d) {
-                      final data = d.data() as Map<String, dynamic>;
-                      final nombre = data['nombre'] ?? data['Nombre'] ?? data['name'] ?? 'Dr./Dra. Sin nombre';
-                      final especialidad = data['especialidad'] ?? data['Especialidad'] ?? '';
-                      return DropdownMenuItem(value: d.id, child: Text('$nombre ${especialidad.isNotEmpty ? '- $especialidad' : ''}'));
-                    }).toList(),
-                    onChanged: (v) => setState(() => _selectedDoctor = v ?? ''),
-                    decoration: const InputDecoration(labelText: 'Especialista'),
-                  );
+                    // Build dropdown and show availability info if present
+                    final dropdown = DropdownButtonFormField<String>(
+                      initialValue: _selectedDoctor.isNotEmpty ? _selectedDoctor : docs.first.id,
+                      items: docs.map((d) {
+                        final data = d.data() as Map<String, dynamic>;
+                        final nombre = data['nombre'] ?? data['Nombre'] ?? data['name'] ?? 'Dr./Dra. Sin nombre';
+                        final especialidad = data['especialidad'] ?? data['Especialidad'] ?? '';
+                        return DropdownMenuItem(value: d.id, child: Text('$nombre ${especialidad.isNotEmpty ? '- $especialidad' : ''}'));
+                      }).toList(),
+                      onChanged: (v) => setState(() => _selectedDoctor = v ?? ''),
+                      decoration: const InputDecoration(labelText: 'Especialista'),
+                    );
 
-                  // find selected doctor data to display availability
-                  Map<String, dynamic>? selDoc;
-                  try {
-                    selDoc = docs.firstWhere((d) => d.id == _selectedDoctor, orElse: () => docs.first).data() as Map<String, dynamic>?;
-                  } catch (_) {
-                    selDoc = null;
-                  }
+                    // find selected doctor data to display availability
+                    Map<String, dynamic>? selDoc;
+                    try {
+                      selDoc = docs.firstWhere((d) => d.id == _selectedDoctor, orElse: () => docs.first).data() as Map<String, dynamic>?;
+                    } catch (_) {
+                      selDoc = null;
+                    }
 
-                  final availFrom = selDoc == null ? null : (selDoc['available_from'] ?? selDoc['availableFrom'] ?? selDoc['hora_inicio'] ?? selDoc['inicio']);
-                  final availTo = selDoc == null ? null : (selDoc['available_to'] ?? selDoc['availableTo'] ?? selDoc['hora_fin'] ?? selDoc['fin']);
+                    final availFrom = selDoc == null ? null : (selDoc['available_from'] ?? selDoc['availableFrom'] ?? selDoc['hora_inicio'] ?? selDoc['inicio']);
+                    final availTo = selDoc == null ? null : (selDoc['available_to'] ?? selDoc['availableTo'] ?? selDoc['hora_fin'] ?? selDoc['fin']);
 
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      dropdown,
-                      const SizedBox(height: 6),
-                      if (availFrom != null || availTo != null)
-                        Text('Disponibilidad: ${availFrom ?? "-"} - ${availTo ?? "-"}', style: const TextStyle(fontSize: 12, color: Colors.black54)),
-                    ],
-                  );
-                },
-              ),
-              const SizedBox(height: 12),
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        dropdown,
+                        const SizedBox(height: 6),
+                        if (availFrom != null || availTo != null)
+                          Text('Disponibilidad: ${availFrom ?? "-"} - ${availTo ?? "-"}', style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 12),
 
-              // Opcional: paciente UID (permite asignar a un paciente diferente)
-              TextFormField(
-                controller: _patientCtrl,
-                decoration: const InputDecoration(labelText: 'Paciente (UID) - opcional'),
-              ),
-              const SizedBox(height: 12),
+                // Opcional: paciente UID (permite asignar a un paciente diferente)
+                TextFormField(
+                  controller: _patientCtrl,
+                  decoration: const InputDecoration(labelText: 'Paciente (UID) - opcional'),
+                ),
+                const SizedBox(height: 12),
 
-              // (Dirección clínica eliminada por solicitud)
-              const SizedBox(height: 12),
+                // (Dirección clínica eliminada por solicitud)
+                const SizedBox(height: 12),
 
-              // Opcional: instrucciones previas
-              TextFormField(
-                controller: _instructionsCtrl,
-                decoration: const InputDecoration(labelText: 'Instrucciones (opcional)'),
-                maxLines: 2,
-              ),
-              const SizedBox(height: 12),
+                // Opcional: instrucciones previas
+                TextFormField(
+                  controller: _instructionsCtrl,
+                  decoration: const InputDecoration(labelText: 'Instrucciones (opcional)'),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 12),
 
-              // Only pick start; end is set to start + 1 hour automatically
-              OutlinedButton(
-                onPressed: () => _pickDateTime(isStart: true),
-                child: Text('Inicio: ${_fmt(_start)}'),
-              ),
-              const SizedBox(height: 8),
-              if (_start != null)
-                Text('Fin (automático): ${_fmt(_end)}', style: const TextStyle(fontSize: 13, color: Colors.black54)),
-              const SizedBox(height: 20),
+                // Only pick start; end is set to start + 1 hour automatically
+                OutlinedButton(
+                  onPressed: () => _pickDateTime(isStart: true),
+                  child: Text('Inicio: ${_fmt(_start)}'),
+                ),
+                const SizedBox(height: 8),
+                if (_start != null)
+                  Text('Fin (automático): ${_fmt(_end)}', style: const TextStyle(fontSize: 13, color: Colors.black54)),
+                const SizedBox(height: 20),
 
-              ElevatedButton(onPressed: _submit, child: const Text('Guardar')),
-            ],
+                ElevatedButton(onPressed: _submit, child: const Text('Guardar')),
+              ],
+            ),
           ),
         ),
       ),

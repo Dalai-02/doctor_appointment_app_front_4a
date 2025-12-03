@@ -19,7 +19,7 @@ class _AppointmentsCalendarPageState extends State<AppointmentsCalendarPage> {
     _loadEvents();
   }
 
-  void _loadEvents() async {
+  Future<void> _loadEvents() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
@@ -43,37 +43,47 @@ class _AppointmentsCalendarPageState extends State<AppointmentsCalendarPage> {
   Widget build(BuildContext context) {
     // Simple calendar-less view: list days with appointments and items per day.
     final days = _events.keys.toList()..sort();
+    final Widget listChild = days.isEmpty
+        ? ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: const [SizedBox(height: 160, child: Center(child: Text('No hay citas para mostrar en el calendario')))],
+          )
+        : ListView.builder(
+            itemCount: days.length,
+            itemBuilder: (context, idx) {
+              final day = days[idx];
+              final items = _eventsForDay(day);
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}",
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 6),
+                    ...items.map((a) => Card(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          child: ListTile(
+                            title: Text(a.motivo),
+                            subtitle: Text('${a.start} - ${a.end}'),
+                          ),
+                        )),
+                  ],
+                ),
+              );
+            },
+          );
+
     return Scaffold(
       appBar: AppBar(title: const Text('Calendario de Citas')),
-      body: days.isEmpty
-          ? const Center(child: Text('No hay citas para mostrar en el calendario'))
-          : ListView.builder(
-              itemCount: days.length,
-              itemBuilder: (context, idx) {
-                final day = days[idx];
-                final items = _eventsForDay(day);
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '${day.year}-${day.month.toString().padLeft(2, '0')}-${day.day.toString().padLeft(2, '0')}',
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 6),
-                      ...items.map((a) => Card(
-                            margin: const EdgeInsets.symmetric(vertical: 4),
-                            child: ListTile(
-                              title: Text(a.motivo),
-                              subtitle: Text('${a.start} - ${a.end}'),
-                            ),
-                          )),
-                    ],
-                  ),
-                );
-              },
-            ),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          await _loadEvents();
+        },
+        child: listChild,
+      ),
     );
   }
 }

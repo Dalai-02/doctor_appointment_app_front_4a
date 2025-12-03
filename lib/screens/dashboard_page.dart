@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../blocs/dashboard_bloc.dart';
 import '../routes.dart';
 
@@ -10,10 +11,17 @@ class DashboardPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Dashboard Médico')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: BlocBuilder<DashboardBloc, dynamic>(
-          builder: (context, state) {
+      body: RefreshIndicator(
+        onRefresh: () async {
+          final uid = FirebaseAuth.instance.currentUser?.uid;
+          if (uid != null) context.read<DashboardBloc>().add(DashboardStart(uid));
+          await Future.delayed(const Duration(milliseconds: 300));
+        },
+        child: ListView(
+          padding: const EdgeInsets.all(16.0),
+          children: [
+            BlocBuilder<DashboardBloc, dynamic>(
+              builder: (context, state) {
             if (state is DashboardLoading) {
               return const Center(child: CircularProgressIndicator());
             }
@@ -60,7 +68,9 @@ class DashboardPage extends StatelessWidget {
               );
             }
             return const SizedBox.shrink();
-          },
+              },
+            ),
+          ],
         ),
       ),
     );

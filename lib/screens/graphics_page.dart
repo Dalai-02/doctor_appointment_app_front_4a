@@ -133,9 +133,15 @@ class _GraphicsPageState extends State<GraphicsPage> {
                     if (yInterval <= 0) yInterval = 1.0;
                   }
 
-                  return SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
+                  return RefreshIndicator(
+                    onRefresh: () async {
+                      setState(() {});
+                      await Future.delayed(const Duration(milliseconds: 300));
+                    },
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         Card(
@@ -217,7 +223,8 @@ class _GraphicsPageState extends State<GraphicsPage> {
                         const Text('- Asegúrate de que los documentos en `citas` contienen `start` (Timestamp) y `status` (String).'),
                       ],
                     ),
-                  );
+                  ),
+                );
                 },
               );
             },

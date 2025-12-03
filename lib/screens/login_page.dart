@@ -23,6 +23,8 @@ class _LoginPageState extends State<LoginPage> {
   bool _isRegister = false;
   bool _loading = false;
   String _selectedRole = 'Paciente';
+  bool _obscurePassword = true;
+  bool _obscureConfirm = true;
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
@@ -282,11 +284,15 @@ class _LoginPageState extends State<LoginPage> {
                   const SizedBox(height: 16),
                   TextFormField(
                     controller: passwordController,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: "Contraseña",
-                      border: OutlineInputBorder(),
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                        onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                      ),
                     ),
-                    obscureText: true,
+                    obscureText: _obscurePassword,
                     validator: (value) {
                       if (value == null || value.isEmpty) {
                         return "Por favor ingresa tu contraseña";
@@ -331,11 +337,15 @@ class _LoginPageState extends State<LoginPage> {
                     ],
                     TextFormField(
                       controller: passwordConfirmController,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: "Confirmar contraseña",
-                        border: OutlineInputBorder(),
+                        border: const OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          icon: Icon(_obscureConfirm ? Icons.visibility_off : Icons.visibility),
+                          onPressed: () => setState(() => _obscureConfirm = !_obscureConfirm),
+                        ),
                       ),
-                      obscureText: true,
+                      obscureText: _obscureConfirm,
                       validator: (value) {
                         if (_isRegister && (value == null || value.isEmpty)) {
                           return 'Por favor confirma tu contraseña';
