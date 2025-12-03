@@ -25,22 +25,33 @@ service cloud.firestore {
 
       // Allow updates to the appointment status by the creator, the patient or the doctor.
       // Only allow changing a limited set of fields when doing an update for safety.
-      // We allow any subset of the approved keys below so clients that send only
-      // a subset (e.g., ['status'] or ['status','instructions']) will still match.
+      // Use diff().affectedKeys() to validate which fields are being modified
+      // (so partial updates are accepted even when the full doc contains many keys).
       allow update: if request.auth != null
                     && (
                       request.auth.uid == resource.data.created_by
                       || request.auth.uid == resource.data.id_paciente
                       || request.auth.uid == resource.data.id_medico
+                      // ALSO allow if the caller is a registered doctor (fallback when id_medico missing/mistyped)
+                      || get(/databases/$(database)/documents/doctores/$(request.auth.uid)).exists()
                     )
-                    // Allowed keys for updates (any subset is accepted)
-                    && request.resource.data.keys().hasOnly(['status','clinic_address','instructions','cancelled_at','cancelled_by','cancel_reason'])
-                    // Extra validations when cancellation fields are present
+                    // Allowed key combinations for an update (only the affected keys may be these)
                     && (
-                      (request.resource.data.cancelled_by == null || request.resource.data.cancelled_by == request.auth.uid)
-                      && (request.resource.data.cancelled_at == null || request.resource.data.cancelled_at is timestamp)
-                      && (request.resource.data.cancel_reason == null || request.resource.data.cancel_reason is string)
-                    );
+                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+                      || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','clinic_address'])
+                      || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','instructions'])
+                      || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','clinic_address','instructions'])
+                      || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','cancelled_at','cancelled_by'])
+                      || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','cancelled_at','cancelled_by','cancel_reason'])
+                      || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','cancelled_by'])
+                      || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','cancel_reason'])
+                    )
+  // Extra validations when cancellation fields are present
+  && (
+    (request.resource.data.cancelled_by == null || request.resource.data.cancelled_by == request.auth.uid)
+    && (request.resource.data.cancelled_at == null || request.resource.data.cancelled_at is timestamp)
+    && (request.resource.data.cancel_reason == null || request.resource.data.cancel_reason is string)
+  );
 
       // Deletion allowed to creator OR to the assigned doctor (or a user whose
       // perfil en `usuarios` indica role == 'medico').

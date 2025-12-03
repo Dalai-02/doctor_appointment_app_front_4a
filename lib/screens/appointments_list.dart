@@ -323,10 +323,22 @@ class _AppointmentsListPageState extends State<AppointmentsListPage> {
                                         }
                                       },
                                     ),
-                              onLongPress: () => Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) => AppointmentFormPage(editing: a)),
-                              ),
+                              onLongPress: () async {
+                                // Only allow editing if the current user created the
+                                // appointment or is a doctor.
+                                final currentUid = FirebaseAuth.instance.currentUser?.uid;
+                                final canEdit = currentUid != null && (currentUid == a.createdBy || isDoctor);
+                                if (!canEdit) {
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No estás autorizado para editar esta cita.')));
+                                  return;
+                                }
+                                await Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (_) => AppointmentFormPage(editing: a)),
+                                );
+                                // After returning from the edit form, rebuild to reflect changes
+                                if (mounted) setState(() {});
+                              },
                             ),
                           );
                         },

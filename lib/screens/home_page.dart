@@ -16,7 +16,6 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   final _auth = FirebaseAuth.instance;
-  final _service = ConsejosService();
 
   double _dragStartX = 0.0;
   double _dragDx = 0.0;
